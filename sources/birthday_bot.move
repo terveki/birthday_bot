@@ -1,10 +1,8 @@
 module overmind::birthday_bot {
     use aptos_std::table::Table;
     use std::signer;
-    use std::error;
     use std::bcs;
     use aptos_framework::account;
-    use aptos_framework::resource_account;
     use std::vector;
     use aptos_framework::coin;
     use aptos_framework::aptos_coin::AptosCoin;
@@ -65,17 +63,22 @@ module overmind::birthday_bot {
     public fun assert_birthday_gift_exists(
         distribution_address: address,
         address: address,
-    )// acquires DistributionStore
+    ) acquires DistributionStore
     {
         // TODO: assert that `birthday_gifts` exists
+        let birthday_distribution_store = borrow_global<DistributionStore>(distribution_address);
+        assert!(table::contains(&birthday_distribution_store.birthday_gifts, address), ERROR_BIRTHDAY_GIFT_DOES_NOT_EXIST);
     }
 
     public fun assert_birthday_timestamp_seconds_has_passed(
         distribution_address: address,
         address: address,
-    ) //acquires DistributionStore 
+    ) acquires DistributionStore 
     {
         // TODO: assert that the current timestamp is greater than or equal to `birthday_timestamp_seconds`
+        let birthday_distribution_store = borrow_global<DistributionStore>(distribution_address);
+        let gift_to_check = table::borrow(&birthday_distribution_store.birthday_gifts, address);
+        assert!(gift_to_check.birthday_timestamp_seconds < timestamp::now_seconds(), ERROR_BIRTHDAY_TIMESTAMP_SECONDS_HAS_NOT_PASSED)
     }
 
     //
@@ -148,7 +151,6 @@ module overmind::birthday_bot {
         assert_distribution_store_exists(signer_address);
 
         // TODO: set new birthday gift to new `amount` and `birthday_timestamp_seconds` (birthday_gift already exists, sum `amounts` and override the `birthday_timestamp_seconds`
-        let gift_exists = 0;
         let birthday_distribution_store = borrow_global_mut<DistributionStore>(signer_address);
 
         if(table::contains(&birthday_distribution_store.birthday_gifts, address)) 
@@ -163,6 +165,7 @@ module overmind::birthday_bot {
                     amount: amount,
                     birthday_timestamp_seconds: birthday_timestamp_seconds
                 };
+            table::upsert(&mut birthday_distribution_store.birthday_gifts, address, new_birthday_gift);
         };
 
         // TODO: transfer the `amount` from initiator to resource account
@@ -178,11 +181,18 @@ module overmind::birthday_bot {
     public entry fun remove_birthday_gift(
         account: &signer,
         address: address,
-    )// acquires DistributionStore
+    ) acquires DistributionStore
      {
         // TODO: check that the distribution store exists
+        let signer_address = signer::address_of(account);
+        assert_distribution_store_exists(signer_address);
 
         // TODO: if `birthday_gifts` exists, remove `birthday_gift` from table and transfer `amount` from resource account to initiator
+        assert_birthday_gift_exists(signer::address_of(account), address);
+        let birthday_distribution_store = borrow_global_mut<DistributionStore>(signer_address);
+        let removed_gift = table::remove(&mut birthday_distribution_store.birthday_gifts, address);
+        coin::transfer<AptosCoin>(&account::create_signer_with_capability(&birthday_distribution_store.signer_capability), signer::address_of(account), removed_gift.amount);
+
     }
 
     /**
@@ -193,14 +203,22 @@ module overmind::birthday_bot {
     public entry fun claim_birthday_gift(
         account: &signer,
         distribution_address: address,
-    )// acquires DistributionStore 
+    ) acquires DistributionStore 
     {
         // TODO: check that the distribution store exists
+        assert_distribution_store_exists(distribution_address);
 
         // TODO: check that the `birthday_gift` exists
-
+        assert_birthday_gift_exists(distribution_address, signer::address_of(account));
+        
         // TODO: check that the `birthday_timestamp_seconds` has passed
+        assert_birthday_timestamp_seconds_has_passed(distribution_address, signer::address_of(account));
+    
+        let birthday_distribution_store = borrow_global_mut<DistributionStore>(distribution_address);
 
         // TODO: remove `birthday_gift` from table and transfer `amount` from resource account to initiator
+        let removed_gift = table::remove(&mut birthday_distribution_store.birthday_gifts, signer::address_of(account));
+        coin::transfer<AptosCoin>(&account::create_signer_with_capability(&birthday_distribution_store.signer_capability), signer::address_of(account), removed_gift.amount);
+
     }
 }
